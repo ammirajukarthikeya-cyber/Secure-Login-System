@@ -4,6 +4,7 @@ const session = require('express-session');
 const SQLiteStore = require('connect-sqlite3')(session);
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const crypto = require('crypto');
 const path = require('path');
 const { initDatabase } = require('./db/database');
 const authRoutes = require('./routes/auth');
@@ -101,10 +102,14 @@ app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 // ---------------------------------------------------------------------------
 // Session Management & Cookie Hardening
 // ---------------------------------------------------------------------------
-const sessionSecret = process.env.SESSION_SECRET || 'dev-insecure-session-key-change-me';
-if (process.env.NODE_ENV === 'production' && sessionSecret === 'dev-insecure-session-key-change-me') {
-  console.error('FATAL: Insecure default SESSION_SECRET cannot be used in production mode.');
-  process.exit(1);
+let sessionSecret = process.env.SESSION_SECRET;
+if (!sessionSecret) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('FATAL: SESSION_SECRET environment variable is strictly required in production mode.');
+    process.exit(1);
+  }
+  // Generate an ephemeral high-entropy random key for local development
+  sessionSecret = crypto.randomBytes(32).toString('hex');
 }
 
 const isProduction = process.env.NODE_ENV === 'production';

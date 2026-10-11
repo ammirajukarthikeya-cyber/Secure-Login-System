@@ -8,12 +8,20 @@ const crypto = require('crypto');
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12; // Standard GCM IV length (96 bits)
 
+let fallbackMasterKey = null;
+
 /**
  * Derives a 32-byte key for AES-256-GCM.
- * Uses TOTP_ENCRYPTION_KEY if provided, or derives from SESSION_SECRET with a salt.
+ * Uses TOTP_ENCRYPTION_KEY if provided, or derives from SESSION_SECRET or an ephemeral random key.
  */
 function getEncryptionKey() {
-  const masterKey = process.env.TOTP_ENCRYPTION_KEY || process.env.SESSION_SECRET || 'dev-default-secure-fallback-encryption-key-for-local-assessment';
+  let masterKey = process.env.TOTP_ENCRYPTION_KEY || process.env.SESSION_SECRET;
+  if (!masterKey) {
+    if (!fallbackMasterKey) {
+      fallbackMasterKey = crypto.randomBytes(32).toString('hex');
+    }
+    masterKey = fallbackMasterKey;
+  }
   return crypto.scryptSync(masterKey, 'salt-totp-storage-v1', 32);
 }
 

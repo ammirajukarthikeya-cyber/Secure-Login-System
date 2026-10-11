@@ -2,7 +2,16 @@ const { describe, it, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const request = require('supertest');
 const speakeasy = require('speakeasy');
-const { app, setupTestDatabase, cleanupTestDatabase, getDatabase } = require('./test-helper');
+const crypto = require('crypto');
+const {
+  app,
+  setupTestDatabase,
+  cleanupTestDatabase,
+  getDatabase,
+  generateValidPassword,
+  generateValidUsername,
+  generateValidEmail,
+} = require('./test-helper');
 const { getRawUserById } = require('../db/database');
 const { decryptSecret } = require('../utils/crypto');
 
@@ -52,13 +61,17 @@ describe('Capstone Retest Suite: Defensive Hardening & Verification', () => {
   // =========================================================================
   describe('Domain 2: Authentication & 2FA Hardening', () => {
     it('should store TOTP secret encrypted at rest (AES-256-GCM) in the database', async () => {
+      const dynamicUser = generateValidUsername('crypto_user');
+      const dynamicPass = generateValidPassword();
+      const dynamicEmail = generateValidEmail('crypto');
+
       // 1. Register user
       const regRes = await request(app)
         .post('/api/auth/register')
         .send({
-          username: 'crypto_user',
-          email: 'crypto@example.com',
-          password: 'CryptoTestPass2026!',
+          username: dynamicUser,
+          email: dynamicEmail,
+          password: dynamicPass,
         })
         .expect(201);
 
@@ -95,13 +108,17 @@ describe('Capstone Retest Suite: Defensive Hardening & Verification', () => {
     });
 
     it('should prevent session fixation across 2FA validation by regenerating session ID', async () => {
+      const dynamicUser = generateValidUsername('fixation_user');
+      const dynamicPass = generateValidPassword();
+      const dynamicEmail = generateValidEmail('fixation');
+
       // 1. Register & enable 2FA
       const regRes = await request(app)
         .post('/api/auth/register')
         .send({
-          username: 'fixation_user',
-          email: 'fixation@example.com',
-          password: 'FixationTestPass2026!',
+          username: dynamicUser,
+          email: dynamicEmail,
+          password: dynamicPass,
         })
         .expect(201);
 
@@ -126,8 +143,8 @@ describe('Capstone Retest Suite: Defensive Hardening & Verification', () => {
       const loginRes = await request(app)
         .post('/api/auth/login')
         .send({
-          username: 'fixation_user',
-          password: 'FixationTestPass2026!',
+          username: dynamicUser,
+          password: dynamicPass,
         })
         .expect(200);
 
@@ -157,13 +174,17 @@ describe('Capstone Retest Suite: Defensive Hardening & Verification', () => {
     });
 
     it('should reject OTP token replay attempts within the validity window', async () => {
+      const dynamicUser = generateValidUsername('replay_user');
+      const dynamicPass = generateValidPassword();
+      const dynamicEmail = generateValidEmail('replay');
+
       // 1. Setup user with 2FA
       const regRes = await request(app)
         .post('/api/auth/register')
         .send({
-          username: 'replay_user',
-          email: 'replay@example.com',
-          password: 'ReplayTestPass2026!',
+          username: dynamicUser,
+          email: dynamicEmail,
+          password: dynamicPass,
         })
         .expect(201);
 
@@ -188,8 +209,8 @@ describe('Capstone Retest Suite: Defensive Hardening & Verification', () => {
       const loginRes = await request(app)
         .post('/api/auth/login')
         .send({
-          username: 'replay_user',
-          password: 'ReplayTestPass2026!',
+          username: dynamicUser,
+          password: dynamicPass,
         })
         .expect(200);
 
@@ -203,15 +224,15 @@ describe('Capstone Retest Suite: Defensive Hardening & Verification', () => {
         .send({ token: otpCode })
         .expect(200);
 
-      assert.strictEqual(firstAttempt.body.user.username, 'replay_user');
+      assert.strictEqual(firstAttempt.body.user.username, dynamicUser);
 
       // 4. Second submission (Replay Attack) with the exact same otpCode -> 401 Unauthorized
       // Even if another login attempt occurs in the same time step
       const loginRes2 = await request(app)
         .post('/api/auth/login')
         .send({
-          username: 'replay_user',
-          password: 'ReplayTestPass2026!',
+          username: dynamicUser,
+          password: dynamicPass,
         })
         .expect(200);
 
@@ -225,23 +246,21 @@ describe('Capstone Retest Suite: Defensive Hardening & Verification', () => {
 
       assert.strictEqual(
         replayAttempt.body.error,
-        'Invalid or previously used 2FA token.',
-        'Must reject replayed OTP token'
+        'Invalid or previously used 2FA token.'
       );
     });
-  });
 
-  // =========================================================================
-  // DOMAIN 3: INPUT VALIDATION
-  // =========================================================================
-  describe('Domain 3: Input Validation Defense', () => {
-    it('should reject non-numeric and incorrect length 2FA tokens', async () => {
+    it('should validate 2FA tokens strictly with server-side validation rules', async () => {
+      const dynamicUser = generateValidUsername('val_user');
+      const dynamicPass = generateValidPassword();
+      const dynamicEmail = generateValidEmail('val');
+
       const regRes = await request(app)
         .post('/api/auth/register')
         .send({
-          username: 'val_user',
-          email: 'val@example.com',
-          password: 'ValidationPass2026!',
+          username: dynamicUser,
+          email: dynamicEmail,
+          password: dynamicPass,
         })
         .expect(201);
 
@@ -274,18 +293,18 @@ describe('Capstone Retest Suite: Defensive Hardening & Verification', () => {
     it('should sanitize logged details and never expose passwords or secret tokens', () => {
       const { sanitizeDetails } = require('../middleware/logger');
       const samplePayload = {
-        username: 'alice',
-        password: 'SuperSecretPassword123!',
+        user_identifier: generateValidUsername('test_aud'),
+        password: generateValidPassword(),
         token: '123456',
-        totp_secret: 'JBSWY3DPEHPK3PXP',
+        totp_secret: crypto.randomBytes(16).toString('hex'),
         nested: {
-          password: 'AnotherSecretPassword',
+          password: generateValidPassword(),
           safeField: 'harmless_metric',
         },
       };
 
       const sanitized = sanitizeDetails(samplePayload);
-      assert.strictEqual(sanitized.username, 'alice');
+      assert.strictEqual(sanitized.user_identifier, samplePayload.user_identifier);
       assert.strictEqual(sanitized.password, '[REDACTED]');
       assert.strictEqual(sanitized.token, '[REDACTED]');
       assert.strictEqual(sanitized.totp_secret, '[REDACTED]');

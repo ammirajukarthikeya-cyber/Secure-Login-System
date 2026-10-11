@@ -1,7 +1,15 @@
 const { describe, it, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const request = require('supertest');
-const { app, setupTestDatabase, cleanupTestDatabase, getDatabase } = require('./test-helper');
+const {
+  app,
+  setupTestDatabase,
+  cleanupTestDatabase,
+  getDatabase,
+  generateValidPassword,
+  generateValidUsername,
+  generateValidEmail,
+} = require('./test-helper');
 
 describe('Defensive Control 3: Secure Cookie Settings, Logout & Session Lifecycle', () => {
   before(() => {
@@ -18,12 +26,16 @@ describe('Defensive Control 3: Secure Cookie Settings, Logout & Session Lifecycl
   });
 
   it('should issue session cookies with HttpOnly and SameSite=Strict flags', async () => {
+    const dynamicUser = generateValidUsername('cookie_user');
+    const dynamicPass = generateValidPassword();
+    const dynamicEmail = generateValidEmail('cookie');
+
     const res = await request(app)
       .post('/api/auth/register')
       .send({
-        username: 'charlie_session',
-        email: 'charlie@example.com',
-        password: 'SecureP@ssword2026!',
+        username: dynamicUser,
+        email: dynamicEmail,
+        password: dynamicPass,
       })
       .expect(201);
 
@@ -38,13 +50,17 @@ describe('Defensive Control 3: Secure Cookie Settings, Logout & Session Lifecycl
   });
 
   it('should prevent session fixation by regenerating session ID upon login', async () => {
+    const dynamicUser = generateValidUsername('fixation');
+    const dynamicPass = generateValidPassword();
+    const dynamicEmail = generateValidEmail('fixation');
+
     // 1. Register a user
     await request(app)
       .post('/api/auth/register')
       .send({
-        username: 'fixation_target',
-        email: 'target@example.com',
-        password: 'TargetP@ssword1!',
+        username: dynamicUser,
+        email: dynamicEmail,
+        password: dynamicPass,
       })
       .expect(201);
 
@@ -58,8 +74,8 @@ describe('Defensive Control 3: Secure Cookie Settings, Logout & Session Lifecycl
       .post('/api/auth/login')
       .set('Cookie', preAuthSid || '')
       .send({
-        username: 'fixation_target',
-        password: 'TargetP@ssword1!',
+        username: dynamicUser,
+        password: dynamicPass,
       })
       .expect(200);
 
@@ -95,12 +111,16 @@ describe('Defensive Control 3: Secure Cookie Settings, Logout & Session Lifecycl
     assert.strictEqual(fakeCookieRes.body.error, 'Authentication required. Please log in.');
 
     // 3. Request with valid active session -> 200
+    const validUser = generateValidUsername('protected_user');
+    const validPass = generateValidPassword();
+    const validEmail = generateValidEmail('protected');
+
     const regRes = await request(app)
       .post('/api/auth/register')
       .send({
-        username: 'valid_session_user',
-        email: 'validsess@example.com',
-        password: 'ValidP@ssword1!',
+        username: validUser,
+        email: validEmail,
+        password: validPass,
       })
       .expect(201);
 
@@ -110,17 +130,21 @@ describe('Defensive Control 3: Secure Cookie Settings, Logout & Session Lifecycl
       .set('Cookie', validCookie)
       .expect(200);
 
-    assert.strictEqual(meRes.body.user.username, 'valid_session_user');
+    assert.strictEqual(meRes.body.user.username, validUser);
   });
 
   it('should destroy session on server and clear client cookie upon logout', async () => {
+    const logoutUser = generateValidUsername('logout');
+    const logoutPass = generateValidPassword();
+    const logoutEmail = generateValidEmail('logout');
+
     // 1. Register & authenticate
     const regRes = await request(app)
       .post('/api/auth/register')
       .send({
-        username: 'logout_user',
-        email: 'logout@example.com',
-        password: 'LogoutP@ssword1!',
+        username: logoutUser,
+        email: logoutEmail,
+        password: logoutPass,
       })
       .expect(201);
 

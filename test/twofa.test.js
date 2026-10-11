@@ -2,7 +2,15 @@ const { describe, it, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const request = require('supertest');
 const speakeasy = require('speakeasy');
-const { app, setupTestDatabase, cleanupTestDatabase, getDatabase } = require('./test-helper');
+const {
+  app,
+  setupTestDatabase,
+  cleanupTestDatabase,
+  getDatabase,
+  generateValidPassword,
+  generateValidUsername,
+  generateValidEmail,
+} = require('./test-helper');
 
 describe('Defensive Control 6: Two-Factor Authentication (TOTP)', () => {
   before(() => {
@@ -19,13 +27,17 @@ describe('Defensive Control 6: Two-Factor Authentication (TOTP)', () => {
   });
 
   it('should enforce full 2FA lifecycle: setup, verify, login challenge, and guarded access', async () => {
+    const mfaUser = generateValidUsername('mfa');
+    const mfaPassword = generateValidPassword();
+    const mfaEmail = generateValidEmail('mfa');
+
     // 1. Register a user
     const regRes = await request(app)
       .post('/api/auth/register')
       .send({
-        username: 'mfa_user',
-        email: 'mfa@example.com',
-        password: 'SecureMFA2026!P@ss',
+        username: mfaUser,
+        email: mfaEmail,
+        password: mfaPassword,
       })
       .expect(201);
 
@@ -72,8 +84,8 @@ describe('Defensive Control 6: Two-Factor Authentication (TOTP)', () => {
     const loginRes = await request(app)
       .post('/api/auth/login')
       .send({
-        username: 'mfa_user',
-        password: 'SecureMFA2026!P@ss',
+        username: mfaUser,
+        password: mfaPassword,
       })
       .expect(200);
 
@@ -102,7 +114,7 @@ describe('Defensive Control 6: Two-Factor Authentication (TOTP)', () => {
       .send({ token: challengeToken })
       .expect(200);
 
-    assert.strictEqual(validateRes.body.user.username, 'mfa_user');
+    assert.strictEqual(validateRes.body.user.username, mfaUser);
     const postMfaCookie = validateRes.headers['set-cookie'] || mfaPendingCookie;
 
     // 9. Verify protected route is now accessible (200 OK) using post-2FA session
@@ -111,7 +123,7 @@ describe('Defensive Control 6: Two-Factor Authentication (TOTP)', () => {
       .set('Cookie', postMfaCookie)
       .expect(200);
 
-    assert.strictEqual(authedRes.body.user.username, 'mfa_user');
+    assert.strictEqual(authedRes.body.user.username, mfaUser);
     assert.strictEqual(authedRes.body.user.totpEnabled, true);
   });
 });

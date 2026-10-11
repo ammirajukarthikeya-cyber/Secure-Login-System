@@ -1,9 +1,20 @@
 const { describe, it, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const request = require('supertest');
-const { app, setupTestDatabase, cleanupTestDatabase, getDatabase } = require('./test-helper');
+const {
+  app,
+  setupTestDatabase,
+  cleanupTestDatabase,
+  getDatabase,
+  generateValidPassword,
+  generateValidUsername,
+  generateValidEmail,
+} = require('./test-helper');
 
 describe('Defensive Control 4: Generic Authentication Errors & Enumeration Mitigation', () => {
+  let seededUsername;
+  let seededPassword;
+
   before(() => {
     setupTestDatabase();
   });
@@ -16,24 +27,32 @@ describe('Defensive Control 4: Generic Authentication Errors & Enumeration Mitig
     const db = getDatabase();
     db.exec('DELETE FROM users;');
 
-    // Seed one existing registered user
+    seededUsername = generateValidUsername('seeded_user');
+    seededPassword = generateValidPassword();
+    const seededEmail = generateValidEmail('seeded');
+
+    // Seed one dynamically generated user
     await request(app)
       .post('/api/auth/register')
       .send({
-        username: 'known_user',
-        email: 'known@example.com',
-        password: 'CorrectP@ssword1!',
+        username: seededUsername,
+        email: seededEmail,
+        password: seededPassword,
       })
       .expect(201);
   });
 
   it('should return identical HTTP 401 and identical generic error message for non-existent username vs incorrect password', async () => {
+    const nonExistentUsername = generateValidUsername('nonexistent');
+    const randomAttemptPassword = generateValidPassword();
+    const wrongPassword = generateValidPassword();
+
     // Case A: Non-existent username
     const nonExistentRes = await request(app)
       .post('/api/auth/login')
       .send({
-        username: 'ghost_user_9999',
-        password: 'SomePassword123!',
+        username: nonExistentUsername,
+        password: randomAttemptPassword,
       })
       .expect(401);
 
@@ -41,8 +60,8 @@ describe('Defensive Control 4: Generic Authentication Errors & Enumeration Mitig
     const wrongPasswordRes = await request(app)
       .post('/api/auth/login')
       .send({
-        username: 'known_user',
-        password: 'WrongPassword123!',
+        username: seededUsername,
+        password: wrongPassword,
       })
       .expect(401);
 

@@ -2,7 +2,15 @@ const { describe, it, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const request = require('supertest');
 const bcrypt = require('bcryptjs');
-const { app, setupTestDatabase, cleanupTestDatabase, getDatabase } = require('./test-helper');
+const {
+  app,
+  setupTestDatabase,
+  cleanupTestDatabase,
+  getDatabase,
+  generateValidPassword,
+  generateValidUsername,
+  generateValidEmail,
+} = require('./test-helper');
 
 describe('Defensive Control 1: Safe Password Storage & Hashing', () => {
   before(() => {
@@ -19,11 +27,14 @@ describe('Defensive Control 1: Safe Password Storage & Hashing', () => {
   });
 
   it('should store password as a salted bcrypt hash, never in plaintext', async () => {
-    const rawPassword = 'StrongP@ssw0rd!2026';
+    const dynamicPassword = generateValidPassword();
+    const dynamicUsername = generateValidUsername('hashing_user');
+    const dynamicEmail = generateValidEmail('hashing');
+
     const payload = {
-      username: 'alice_crypto',
-      email: 'alice@example.com',
-      password: rawPassword,
+      username: dynamicUsername,
+      email: dynamicEmail,
+      password: dynamicPassword,
     };
 
     const res = await request(app)
@@ -32,46 +43,49 @@ describe('Defensive Control 1: Safe Password Storage & Hashing', () => {
       .expect(201);
 
     // Verify API response does not expose the password or hash
-    assert.strictEqual(res.body.user.username, 'alice_crypto');
-    assert.strictEqual(res.body.user.email, 'alice@example.com');
+    assert.strictEqual(res.body.user.username, dynamicUsername);
+    assert.strictEqual(res.body.user.email, dynamicEmail);
     assert.strictEqual(res.body.user.password, undefined);
     assert.strictEqual(res.body.user.password_hash, undefined);
 
     // Query database directly to inspect stored representation
     const db = getDatabase();
-    const userRow = db.prepare('SELECT * FROM users WHERE username = ?').get('alice_crypto');
+    const userRow = db.prepare('SELECT * FROM users WHERE username = ?').get(dynamicUsername);
 
     assert.ok(userRow, 'User row should exist in database');
-    assert.notStrictEqual(userRow.password_hash, rawPassword, 'Password must not be stored in plaintext');
+    assert.notStrictEqual(userRow.password_hash, dynamicPassword, 'Password must not be stored in plaintext');
 
     // Verify bcrypt hash structure ($2a$ or $2b$ prefix)
     assert.match(userRow.password_hash, /^\$2[ab]\$\d{2}\$[./A-Za-z0-9]{53}$/, 'Must be a valid bcrypt hash');
 
     // Verify bcrypt.compare succeeds with correct password
-    const isMatch = await bcrypt.compare(rawPassword, userRow.password_hash);
+    const isMatch = await bcrypt.compare(dynamicPassword, userRow.password_hash);
     assert.strictEqual(isMatch, true, 'Stored bcrypt hash must verify against correct password');
 
     // Verify bcrypt.compare fails with incorrect password
-    const isWrongMatch = await bcrypt.compare('WrongPassword!123', userRow.password_hash);
+    const wrongPassword = generateValidPassword();
+    const isWrongMatch = await bcrypt.compare(wrongPassword, userRow.password_hash);
     assert.strictEqual(isWrongMatch, false, 'Stored bcrypt hash must reject incorrect password');
   });
 
   it('should generate distinct salt and unique hashes for identical passwords', async () => {
-    const commonPassword = 'IdenticalP@ssword1!';
+    const sharedPassword = generateValidPassword();
+    const userOne = generateValidUsername('user1');
+    const userTwo = generateValidUsername('user2');
 
     await request(app)
       .post('/api/auth/register')
-      .send({ username: 'user_one', email: 'user1@example.com', password: commonPassword })
+      .send({ username: userOne, email: generateValidEmail('user1'), password: sharedPassword })
       .expect(201);
 
     await request(app)
       .post('/api/auth/register')
-      .send({ username: 'user_two', email: 'user2@example.com', password: commonPassword })
+      .send({ username: userTwo, email: generateValidEmail('user2'), password: sharedPassword })
       .expect(201);
 
     const db = getDatabase();
-    const row1 = db.prepare('SELECT password_hash FROM users WHERE username = ?').get('user_one');
-    const row2 = db.prepare('SELECT password_hash FROM users WHERE username = ?').get('user_two');
+    const row1 = db.prepare('SELECT password_hash FROM users WHERE username = ?').get(userOne);
+    const row2 = db.prepare('SELECT password_hash FROM users WHERE username = ?').get(userTwo);
 
     assert.notStrictEqual(
       row1.password_hash,

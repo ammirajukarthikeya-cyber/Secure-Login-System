@@ -12,14 +12,17 @@ const { logSecurityEvent } = require('../middleware/logger');
 
 const router = express.Router();
 
-// Precomputed bcrypt hash (cost 12) for timing-attack mitigation on non-existent users
-const DUMMY_HASH = '$2a$12$e8Yx/r7sWq5kY1VvJb1GRee3V6l6aY4eO3.8VjP7K8Z6b8q3j7GKi';
+const crypto = require('crypto');
 
 // Configurable bcrypt cost factor (defaults to 12 for high resistance against brute-force)
 function getBcryptRounds() {
   const rounds = parseInt(process.env.BCRYPT_ROUNDS, 10);
   return Number.isInteger(rounds) && rounds >= 4 ? rounds : 12;
 }
+
+// Dynamically generated dummy hash for constant-time timing-attack mitigation
+// Zero static or hardcoded hashes/passwords in source code
+const DUMMY_HASH = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), getBcryptRounds());
 
 // ---------------------------------------------------------------------------
 // Server-side Input Validation Rules
@@ -178,7 +181,6 @@ router.post('/login', loginValidation, async (req, res) => {
         event: 'AUTH_LOGIN_FAILURE',
         level: 'WARN',
         req,
-        username,
         details: { reason: 'invalid_credentials' },
       });
       return res.status(401).json({ error: 'Invalid username or password.' });
